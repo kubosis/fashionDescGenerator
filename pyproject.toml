@@ -10,5 +10,8 @@ dependencies = [
     "huggingface-hub>=1.2.3",
     "ipython>=9.8.0",
     "jupyter>=1.1.1",
+    "matplotlib>=3.10.8",
+    "numpy>=2.3.5",
+    "pillow>=12.0.0",
     "torch>=2.9.1",
 ]
