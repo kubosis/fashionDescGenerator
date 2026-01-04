@@ -1,3 +1,4 @@
 fashiongen_data
 .venv
 .idea
+src/vocab.pkl
