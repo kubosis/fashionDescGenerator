@@ -5,8 +5,8 @@ import nltk
 import h5py
 from tqdm import tqdm
 
-nltk.download('punkt')
-nltk.download('punkt_tab')
+#nltk.download('punkt')
+#nltk.download('punkt_tab')
 
 class AutoVocab:
     def __init__(self):
@@ -25,7 +25,12 @@ class AutoVocab:
         Only text cleaning: lowercase
         """
         if isinstance(text, (bytes, bytearray)):
-            text = text.decode("utf-8", errors="replace")
+            try:
+                # Try standard UTF-8
+                text = text.decode('utf-8')
+            except UnicodeDecodeError:
+                # Fallback to Latin-1
+                text = text.decode('latin-1')
         return nltk.tokenize.word_tokenize(text.lower())
 
     @property
@@ -58,8 +63,19 @@ class AutoVocab:
     def __str__(self):
         return f"AutoVocab(len={len(self)})"
 
+    @staticmethod
+    def load(path):
+        with open(path, "rb") as f:
+            return pickle.load(f)
 
 def extract_vocab_from_h5py(h5_path: str, save_path: str = "vocab.pkl") -> AutoVocab:
+    # ensure nltk
+    try:
+        nltk.data.find('tokenizers/punkt')
+    except LookupError:
+        nltk.download('punkt')
+        nltk.download('punkt_tab')
+
     if os.path.exists(save_path):
         print("Vocab already created, loading from cache...")
         # use cached object instead

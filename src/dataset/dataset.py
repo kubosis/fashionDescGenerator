@@ -2,71 +2,77 @@ from typing import Sequence, List, Tuple
 
 import torch
 from torch.utils.data import DataLoader, Dataset
-import numpy as np
-import torchvision
-from tqdm import tqdm
-import timm
+import torchvision.transforms.v2 as v2
+import h5py
 
 from src.dataset.utils import AutoVocab
 
 
 class ImageCaptionDataset(Dataset):
     def __init__(self,
-                 images: Sequence[str],
-                 captions: Sequence[str],
+                 h5_path,
                  cnn: torch.nn.Module,
                  vocab: AutoVocab,
                  transform=None,
-                 preload: bool = False):
+                 ):
         """
-        preload: If True, loads all images into RAM during initialization.
-                 WARNING: Requires significant RAM for large datasets.
+        h5_path: str, path to the .h5 file
+        vocab: AutoVocab object
+        cnn: The cnn model (to extract preprocessing config)
         """
-        assert len(images) == len(captions)
-
-        self.captions = captions
+        self.h5_path = h5_path
         self.vocab = vocab
         self.transform = transform
 
-        # --- SETUP PREPROCESSING ---
-        data_config = timm.data.resolve_model_data_config(cnn)
-        self.base_preprocessing = timm.data.create_transform(**data_config, is_training=True)
+        # 2. Get dataset length (open briefly then close)
+        with h5py.File(h5_path, "r") as f:
+            self.length = len(f["input_image"])
 
-        # --- PRELOAD LOGIC ---
-        if preload:
-            print(f"Preloading {len(images)} images into RAM...")
-            self.images = []
-            for img_path in tqdm(images):
-                img_tensor = torchvision.io.decode_image(img_path, mode=torchvision.io.ImageReadMode.RGB)
-                self.images.append(img_tensor)
-        else:
-            self.images = images
+        # 3. Placeholders for worker process
+        self.h5_file = None
+        self.images = None
+        self.captions = None
+
+        # --- SETUP PREPROCESSING ---
+        cfg = cnn.pretrained_cfg
+
+        # use the same base transformation as during the training
+        input_size = cfg["input_size"]  # (C, H, W)
+        target_h, target_w = input_size[1:]
+
+        self.base_preprocessing = v2.Compose([
+            v2.ToDtype(torch.float32, scale=True),
+            v2.Resize(max(target_h, target_w), interpolation=v2.InterpolationMode(cfg["interpolation"])),
+            v2.CenterCrop((target_h, target_w)),
+            v2.Normalize(mean=cfg["mean"], std=cfg["std"]),
+        ])
 
     def __len__(self):
-        return len(self.images)
+        return self.length
 
     def __getitem__(self, item):
+        # 4. Lazy Load: Open file ONLY inside the worker process
+        if self.h5_file is None:
+            self.h5_file = h5py.File(self.h5_path, "r")
+            self.images = self.h5_file["input_image"]
+            self.captions = self.h5_file["input_description"]
+
+        # 5. Load Data
         img_source = self.images[item]
+        image_tensor = torch.from_numpy(img_source).permute(2, 0, 1).float() / 255.0
 
-        # 1. Load Image (if not preloaded)
-        if isinstance(img_source, np.typing.ArrayLike):
-            img_source = torch.tensor(img_source)
-        else:
-            img_source = torchvision.io.decode_image(img_source, mode=torchvision.io.ImageReadMode.RGB)
+        # 6. Preprocessing
+        # We ensure input is the correct shape/type for timm
+        image = self.base_preprocessing(image_tensor)
 
-        # 2. Base Preprocessing
-        image = self.base_preprocessing(img_source.permute(2, 0, 1).to(torch.float32))
+        # 7. Text
+        cap = self.captions[item][0]
 
-        # 3. Augmentations (optional)
-        if self.transform:
-            image = self.transform(image)
+        sentence_ids = torch.tensor(self.vocab.to_indices(cap), dtype=torch.long)
 
-        # 4. Text
-        sentence_ids = torch.tensor(self.vocab.to_indices(self.captions[item][0]), dtype=torch.long)
+        return image, sentence_ids
 
-        return torch.Tensor(image), sentence_ids
-
-    def get_dataloader(self, batch_size, shuffle=False, num_workers=0):
+    def get_dataloader(self, batch_size, shuffle=False, num_workers=0, **kwargs):
         from functools import partial
 
         pad_idx = self.vocab.pad if hasattr(self.vocab, 'pad') else self.vocab.to_index("<PAD>")
@@ -76,7 +82,8 @@ class ImageCaptionDataset(Dataset):
                           batch_size=batch_size,
                           shuffle=shuffle,
                           collate_fn=collate_wrapper,
-                          num_workers=num_workers)
+                          num_workers=num_workers,
+                          **kwargs)
 
 
 def collate_fn(batch: List[Tuple[torch.Tensor, torch.Tensor]], pad_idx: int):
