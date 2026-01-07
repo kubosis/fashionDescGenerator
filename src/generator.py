@@ -77,7 +77,7 @@ if __name__ == '__main__':
 
     vocab = AutoVocab.load(args.vocab_path)
 
-    model = ImageCaptionModel(len(vocab), embed_dim=512, hidden_dim=512, num_hidden_layers=2)
+    model = ImageCaptionModel(len(vocab), embed_dim=1024, hidden_dim=512, num_hidden_layers=2)
     model.load_state_dict(torch.load(args.model_path))
 
     tokens = generate_fast(model, args.image_path, vocab)

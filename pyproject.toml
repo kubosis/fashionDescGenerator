@@ -10,6 +10,7 @@ dependencies = [
     "huggingface-hub>=1.2.3",
     "ipython>=9.8.0",
     "jupyter>=1.1.1",
+    "matplotlib>=3.10.8",
     "nltk>=3.9.2",
     "numpy>=2.3.5",
     "optuna>=4.6.0",
