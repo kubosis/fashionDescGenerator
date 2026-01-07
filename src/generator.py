@@ -6,6 +6,7 @@ import torch
 import torchvision.io.image
 import torchvision.transforms.v2 as v2
 
+from src.dataset.utils import AutoVocab
 from src.model import ImageCaptionModel, get_timm_cnn_pretrained_cnf
 
 parser = argparse.ArgumentParser()
@@ -14,7 +15,7 @@ parser.add_argument("--image-path", type=str)
 parser.add_argument("--vocab-path", type=str)
 
 
-def generate_fast(model: ImageCaptionModel, image_path, vocab, max_len=20, device='cpu'):
+def generate_fast(model: ImageCaptionModel, image_path, vocab, max_len=100, device='cpu'):
     model.eval()
 
     image_tensor = torchvision.io.image.decode_image(image_path, mode="RGB")
@@ -31,6 +32,7 @@ def generate_fast(model: ImageCaptionModel, image_path, vocab, max_len=20, devic
         v2.Normalize(mean=cfg["mean"], std=cfg["std"]),
     ])
     image_tensor = transformation(image_tensor).unsqueeze(0).to(device)
+    print(image_tensor)
 
     # Start with SOS
     next_token = torch.tensor([[vocab.to_index("<SOS>")]], device=image_tensor.device)
@@ -52,6 +54,33 @@ def generate_fast(model: ImageCaptionModel, image_path, vocab, max_len=20, devic
 
     return [vocab.itt[idx] for idx in generated_indices]
 
+def pretty_print_tokens(tokens: list[str]):
+    is_after_dot = True
+    tokens = [t for t in tokens if t not in {"<", ">", "br", "&", ";", "lt", "gt"}]
+    for token in tokens:
+        if not token in [".", ","]:
+            print(" ", end="")
+
+        if is_after_dot:
+            print(token.capitalize(), end="")
+        else:
+            print(token, end="")
+
+        if token == ".":
+            is_after_dot = True
+        else:
+            is_after_dot = False
+    print()
+
 if __name__ == '__main__':
     args = parser.parse_args()
+
+    vocab = AutoVocab.load(args.vocab_path)
+
+    model = ImageCaptionModel(len(vocab), embed_dim=512, hidden_dim=512, num_hidden_layers=2)
+    model.load_state_dict(torch.load(args.model_path))
+
+    tokens = generate_fast(model, args.image_path, vocab)
+    pretty_print_tokens(tokens)
+
 

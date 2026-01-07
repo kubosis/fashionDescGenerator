@@ -26,7 +26,7 @@ class ImageCaptionModel(nn.Module):
             hidden_size=hidden_dim,
             num_layers=num_hidden_layers,
             batch_first=True,
-            dropout=0.5 if num_hidden_layers > 1 else 0
+            #dropout=0.5 if num_hidden_layers > 1 else 0
         )
 
         self.fc = nn.Linear(hidden_dim, vocab_size)
